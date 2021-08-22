@@ -16,8 +16,6 @@
 
 package com.google.android.material.badge;
 
-import com.google.android.material.R;
-
 import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 import static com.google.android.material.badge.BadgeUtils.updateBadgeBounds;
 
@@ -30,16 +28,19 @@ import android.graphics.ColorFilter;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.Parcel;
 import android.os.Parcelable;
-import androidx.core.view.ViewCompat;
+import android.text.TextPaint;
 import android.util.AttributeSet;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.FrameLayout.LayoutParams;
+
 import androidx.annotation.AttrRes;
 import androidx.annotation.ColorInt;
 import androidx.annotation.Dimension;
@@ -52,6 +53,10 @@ import androidx.annotation.StringRes;
 import androidx.annotation.StyleRes;
 import androidx.annotation.StyleableRes;
 import androidx.annotation.XmlRes;
+import androidx.core.content.res.ResourcesCompat;
+import androidx.core.view.ViewCompat;
+
+import com.google.android.material.R;
 import com.google.android.material.drawable.DrawableUtils;
 import com.google.android.material.internal.TextDrawableHelper;
 import com.google.android.material.internal.TextDrawableHelper.TextDrawableDelegate;
@@ -59,6 +64,7 @@ import com.google.android.material.internal.ThemeEnforcement;
 import com.google.android.material.resources.MaterialResources;
 import com.google.android.material.resources.TextAppearance;
 import com.google.android.material.shape.MaterialShapeDrawable;
+
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.ref.WeakReference;
@@ -70,7 +76,7 @@ import java.text.NumberFormat;
  * <p>You can use {@code BadgeDrawable} to display dynamic information such as a number of pending
  * requests in a {@link com.google.android.material.bottomnavigation.BottomNavigationView}. To
  * create an instance of {@code BadgeDrawable}, use {@link #create(Context)} or {@link
- * #createFromResources(Context, int)}. How to add and display a {@code BadgeDrawable} on top of its
+ * #createFromResource(Context, int)} (Context, int)}. How to add and display a {@code BadgeDrawable} on top of its
  * anchor view depends on the API level:
  *
  * <p>For API 18+ (APIs supported by {@link android.view.ViewOverlay})
@@ -121,7 +127,7 @@ import java.text.NumberFormat;
  * <p>By default, {@code BadgeDrawable} is aligned to the top and end edges of its anchor view (with
  * some offsets). Call {@link #setBadgeGravity(int)} to change it to one of the other supported
  * modes. To adjust the badge's offsets w.r.t. the anchor's center, use {@link
- * BadgeDrawable#setHoriziontalOffset(int)}, {@link BadgeDrawable#setVerticalOffset(int)}
+ * BadgeDrawable#setHorizontalOffset(int)} (int)}, {@link BadgeDrawable#setVerticalOffset(int)}
  *
  * <p>Note: This is still under development and may not support the full range of customization
  * Material Android components generally support (e.g. themed attributes).
@@ -203,6 +209,7 @@ public class BadgeDrawable extends Drawable implements TextDrawableDelegate {
     @ColorInt private int badgeTextColor;
     private int alpha = 255;
     private int number = BADGE_NUMBER_NONE;
+    @Nullable private String text = null;
     private int maxCharacterCount;
     @Nullable private CharSequence contentDescriptionNumberless;
     @PluralsRes private int contentDescriptionQuantityStrings;
@@ -241,6 +248,7 @@ public class BadgeDrawable extends Drawable implements TextDrawableDelegate {
       badgeTextColor = in.readInt();
       alpha = in.readInt();
       number = in.readInt();
+      text = in.readString();
       maxCharacterCount = in.readInt();
       contentDescriptionNumberless = in.readString();
       contentDescriptionQuantityStrings = in.readInt();
@@ -278,6 +286,7 @@ public class BadgeDrawable extends Drawable implements TextDrawableDelegate {
       dest.writeInt(badgeTextColor);
       dest.writeInt(alpha);
       dest.writeInt(number);
+      dest.writeString(text);
       dest.writeInt(maxCharacterCount);
       dest.writeString(contentDescriptionNumberless.toString());
       dest.writeInt(contentDescriptionQuantityStrings);
@@ -366,6 +375,10 @@ public class BadgeDrawable extends Drawable implements TextDrawableDelegate {
     // numberless badge.
     if (savedState.number != BADGE_NUMBER_NONE) {
       setNumber(savedState.number);
+    }
+
+    if (savedState.text != null && !savedState.text.isEmpty()) {
+      setText(savedState.text);
     }
 
     setBackgroundColor(savedState.backgroundColor);
@@ -615,6 +628,10 @@ public class BadgeDrawable extends Drawable implements TextDrawableDelegate {
     return savedState.number != BADGE_NUMBER_NONE;
   }
 
+  public boolean hasText() {
+    return savedState.text != null && !savedState.text.isEmpty();
+  }
+
   /**
    * Returns this badge's number. Only non-negative integer numbers will be returned because the
    * setter clamps negative values to 0.
@@ -631,6 +648,14 @@ public class BadgeDrawable extends Drawable implements TextDrawableDelegate {
     return savedState.number;
   }
 
+  @NonNull
+  public String getText() {
+      if (!hasText()) {
+          return "";
+      }
+      return savedState.text;
+  }
+
   /**
    * Sets this badge's number. Only non-negative integer numbers are supported. If the number is
    * negative, it will be clamped to 0. The specified value will be displayed, unless its number of
@@ -640,9 +665,27 @@ public class BadgeDrawable extends Drawable implements TextDrawableDelegate {
    * @attr ref com.google.android.material.R.styleable#Badge_number
    */
   public void setNumber(int number) {
+    this.savedState.text = "";
     number = Math.max(0, number);
     if (this.savedState.number != number) {
       this.savedState.number = number;
+      textDrawableHelper.setTextWidthDirty(true);
+      updateCenterAndBounds();
+      invalidateSelf();
+    }
+  }
+
+  /**
+   * Sets this badge's text. If it is set then the number will be neglected.
+   *
+   * @param text This badge's text.
+   * @attr ref com.google.android.material.R.styleable#Badge_number
+   */
+  public void setText(@Nullable String text) {
+    this.savedState.number = BADGE_NUMBER_NONE;
+    text = text != null ? text : "";
+    if (!text.equals(this.savedState.text)) {
+      this.savedState.text = text;
       textDrawableHelper.setTextWidthDirty(true);
       updateCenterAndBounds();
       invalidateSelf();
@@ -747,7 +790,7 @@ public class BadgeDrawable extends Drawable implements TextDrawableDelegate {
       return;
     }
     shapeDrawable.draw(canvas);
-    if (hasNumber()) {
+    if (hasNumber() || hasText()) {
       drawText(canvas);
     }
   }
@@ -890,6 +933,23 @@ public class BadgeDrawable extends Drawable implements TextDrawableDelegate {
       return;
     }
     textDrawableHelper.setTextAppearance(textAppearance, context);
+
+    // apply font family that has been bundled in context theme
+    Typeface font = null;
+    try {
+      TypedValue typedValue = new TypedValue();
+      Resources.Theme theme = context.getTheme();
+      theme.resolveAttribute(android.R.attr.fontFamily, typedValue, true);
+      if (typedValue.resourceId > 0) {
+        font = ResourcesCompat.getFont(context, typedValue.resourceId);
+      }
+    } catch (Throwable ignored) {
+    }
+
+    if (font != null) {
+      textDrawableHelper.getTextPaint().setTypeface(font);
+    }
+
     updateCenterAndBounds();
   }
 
@@ -939,7 +999,12 @@ public class BadgeDrawable extends Drawable implements TextDrawableDelegate {
         break;
     }
 
-    if (getNumber() <= MAX_CIRCULAR_BADGE_NUMBER_COUNT) {
+    if (hasText()) {
+      cornerRadius = badgeWithTextRadius;
+      halfBadgeHeight = cornerRadius;
+      String badgeText = getBadgeText();
+      halfBadgeWidth = textDrawableHelper.getTextWidth(badgeText) / 2f + badgeWidePadding;
+    } else if (getNumber() <= MAX_CIRCULAR_BADGE_NUMBER_COUNT) {
       cornerRadius = !hasNumber() ? badgeRadius : badgeWithTextRadius;
       halfBadgeHeight = cornerRadius;
       halfBadgeWidth = cornerRadius;
@@ -981,20 +1046,23 @@ public class BadgeDrawable extends Drawable implements TextDrawableDelegate {
   }
 
   private void drawText(Canvas canvas) {
-    Rect textBounds = new Rect();
     String badgeText = getBadgeText();
-    textDrawableHelper.getTextPaint().getTextBounds(badgeText, 0, badgeText.length(), textBounds);
+    final TextPaint textPaint = textDrawableHelper.getTextPaint();
+    // More accurate method to calculate center-y position of persian texts
+    float paintCenterY = (textPaint.descent() + textPaint.ascent()) / 2;
     canvas.drawText(
         badgeText,
         badgeCenterX,
-        badgeCenterY + textBounds.height() / 2,
-        textDrawableHelper.getTextPaint());
+        badgeCenterY - paintCenterY,
+        textPaint);
   }
 
   @NonNull
   private String getBadgeText() {
     // If number exceeds max count, show badgeMaxCount+ instead of the number.
-    if (getNumber() <= maxBadgeNumber) {
+    if (hasText()) {
+      return getText();
+    } else if (getNumber() <= maxBadgeNumber) {
       return NumberFormat.getInstance().format(getNumber());
     } else {
       Context context = contextRef.get();
