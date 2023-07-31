@@ -23,14 +23,18 @@ import static com.google.android.material.badge.BadgeUtils.updateBadgeBounds;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
+import android.text.TextPaint;
 import android.text.TextUtils;
 import android.util.Log;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -47,6 +51,7 @@ import androidx.annotation.RestrictTo;
 import androidx.annotation.StringRes;
 import androidx.annotation.StyleRes;
 import androidx.annotation.XmlRes;
+import androidx.core.content.res.ResourcesCompat;
 import androidx.core.view.ViewCompat;
 import com.google.android.material.animation.AnimationUtils;
 import com.google.android.material.internal.TextDrawableHelper;
@@ -1112,9 +1117,30 @@ public class BadgeDrawable extends Drawable implements TextDrawableDelegate {
       return;
     }
     textDrawableHelper.setTextAppearance(textAppearance, context);
+
+    updateTypeFace(context);
     onBadgeTextColorUpdated();
     updateCenterAndBounds();
     invalidateSelf();
+  }
+
+  private void updateTypeFace(Context context) {
+    // apply font family that has been bundled in context theme
+    Typeface font = null;
+    try {
+      TypedValue typedValue = new TypedValue();
+      Resources.Theme theme = context.getTheme();
+      theme.resolveAttribute(android.R.attr.fontFamily, typedValue, true);
+      if (typedValue.resourceId > 0) {
+        font = ResourcesCompat.getFont(context, typedValue.resourceId);
+      }
+    } catch (Throwable ignored) {
+    }
+
+    if (font != null) {
+      textDrawableHelper.getTextPaint().setTypeface(font);
+    }
+
   }
 
   /**
@@ -1427,23 +1453,15 @@ public class BadgeDrawable extends Drawable implements TextDrawableDelegate {
     String badgeContent = getBadgeContent();
     if (badgeContent != null) {
       Rect textBounds = new Rect();
-      textDrawableHelper
-          .getTextPaint()
-          .getTextBounds(badgeContent, 0, badgeContent.length(), textBounds);
-
-      // The text is centered horizontally using Paint.Align.Center. We calculate the correct
-      // y-coordinate ourselves using textbounds.exactCenterY, but this can look askew at low
-      // screen densities due to canvas.drawText rounding the coordinates to the nearest integer.
-      // To mitigate this, we round the y-coordinate following these rules:
-      // If the badge.bottom is <= 0, the text is drawn above its original origin (0,0) so
-      // we round down the y-coordinate since we want to keep it above its new origin.
-      // If the badge.bottom is positive, we round up for the opposite reason.
+      final TextPaint textPaint = textDrawableHelper.getTextPaint();
+      // More accurate method to calculate center-y position of persian texts
+      float paintCenterY = (textPaint.descent() + textPaint.ascent()) / 2;
       float exactCenterY = badgeCenterY - textBounds.exactCenterY();
       canvas.drawText(
           badgeContent,
           badgeCenterX,
-          textBounds.bottom <= 0 ? (int) exactCenterY : Math.round(exactCenterY),
-          textDrawableHelper.getTextPaint());
+          badgeCenterY - paintCenterY,
+          textPaint);
     }
   }
 
